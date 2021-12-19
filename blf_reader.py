@@ -2,7 +2,7 @@ from io import SEEK_CUR, SEEK_END, SEEK_SET, BytesIO
 import datetime
 import struct
 import time
-from typing import List, IO
+from typing import Generator, List, Optional, Tuple, BinaryIO
 import zlib
 
 
@@ -91,7 +91,7 @@ TIME_ONE_NANS = 0x00000002
 DLC_MAP = [0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 16, 20, 24, 32, 48, 64]
 
 
-def timestamp_to_systemtime(timestamp):
+def timestamp_to_systemtime(timestamp: float) -> Tuple[int, int, int, int, int, int, int, int]:
     if timestamp is None or timestamp < 631152000:
         return (0, 0, 0, 0, 0, 0, 0, 0)
     t = datetime.datetime.fromtimestamp(timestamp)
@@ -99,7 +99,7 @@ def timestamp_to_systemtime(timestamp):
             t.hour, t.minute, t.second, int(round(t.microsecond / 1000.0)))
 
 
-def systemtime_to_timestamp(systemtime):
+def systemtime_to_timestamp(systemtime: Tuple[int, ...]) -> float:
     try:
         t = datetime.datetime(
             systemtime[0], systemtime[1], systemtime[3], systemtime[4],
@@ -115,24 +115,24 @@ class BLFError(Exception):
 
 class Message:
 
-    def __init__(self, timestamp: int = 0, id: int = 0, channel: int = 0, data: bytes = b""):
+    def __init__(self, timestamp: int = 0, id: int = 0, channel: int = 0, data: bytes = b"") -> None:
         self.timestamp = timestamp
         self.id = id
         self.channel = channel
         self.data = data
         self.data_length = len(data)
 
-    def parse(self, fp: IO):
+    def parse(self, fp: BinaryIO) -> None:
         raise NotImplementedError()
 
 
 class CANMessage(Message):
 
-    def __init__(self, timestamp: int):
+    def __init__(self, timestamp: int) -> None:
         super().__init__()
         self.timestamp = timestamp
 
-    def parse(self, fp: IO):
+    def parse(self, fp: BinaryIO) -> None:
         # channel, flags, dlc, arbitration_id
         m = CAN_MSG_STRUCT.unpack(fp.read(CAN_MSG_STRUCT.size))
         self.id = m[3] & 0x1FFFFFFF
@@ -150,11 +150,11 @@ class CANMessage(Message):
 
 class CANFDMessage(Message):
 
-    def __init__(self, timestamp: int):
+    def __init__(self, timestamp: int) -> None:
         super().__init__()
         self.timestamp = timestamp
 
-    def parse(self, fp: IO):
+    def parse(self, fp: BinaryIO) -> None:
         # channel, flags, dlc, arbitration_id, frame_length, bit_count,
         # FD_flags, valid_data_bytes
         m = CAN_FD_MSG_STRUCT.unpack(fp.read(CAN_FD_MSG_STRUCT.size))
@@ -173,11 +173,11 @@ class CANFDMessage(Message):
 
 class CANFDMessage64(Message):
 
-    def __init__(self, timestamp: int):
+    def __init__(self, timestamp: int) -> None:
         super().__init__()
         self.timestamp = timestamp
 
-    def parse(self, fp: IO):
+    def parse(self, fp: BinaryIO) -> None:
         # channel, dlc, valid_payload_length_of_data, tx_count, arbitration_id,
         # frame_length, flags, bit_rate_used_in_arbitration_phase,
         # bit_rate_used_in_data_phase, time_offset_of_brs_field,
@@ -199,11 +199,11 @@ class CANFDMessage64(Message):
 
 class CANErrorMessage(Message):
 
-    def __init__(self, timestamp: int):
+    def __init__(self, timestamp: int) -> None:
         super().__init__()
         self.timestamp = timestamp
 
-    def parse(self, fp: IO):
+    def parse(self, fp: BinaryIO) -> None:
         # channel, length, flags, ecc, position, dlc, frame_length, id, flags_ext
         m = CAN_ERROR_EXT_STRUCT.unpack(fp.read(CAN_ERROR_EXT_STRUCT.size))
         self.is_error_frame = True
@@ -221,11 +221,11 @@ class CANErrorMessage(Message):
 
 class EthernetFrame(Message):
 
-    def __init__(self, timestamp: int):
+    def __init__(self, timestamp: int) -> None:
         super().__init__()
         self.timestamp = timestamp
 
-    def parse(self, fp: IO):
+    def parse(self, fp: BinaryIO) -> None:
         # source_address, channel, destination_address, flags, ethernet_type, vlan_tpid,
         # vlan_tci, payload_length (max. 1500 bytes without Ethernet header)
         m = ETHERNET_FRM_STRUCT.unpack(fp.read(ETHERNET_FRM_STRUCT.size))
@@ -250,7 +250,7 @@ class MessageFilter:
 
 class BLFObject:
 
-    def __init__(self, start_timestamp: int = 0):
+    def __init__(self, start_timestamp: float = 0) -> None:
         self.start_timestamp = start_timestamp
         self._content: List[Message] = []
 
@@ -258,11 +258,11 @@ class BLFObject:
     def content(self) -> List[Message]:
         return self._content
 
-    def parse(self, fp: IO):
+    def parse(self, fp: BinaryIO) -> None:
         self.__read_header(fp)
         self.__read_content(fp)
 
-    def __read_header(self, fp: IO):
+    def __read_header(self, fp: BinaryIO) -> None:
         data = fp.read(OBJ_HEADER_BASE_STRUCT.size)
         if not data:
             raise EOFError()
@@ -277,7 +277,7 @@ class BLFObject:
         self.obj_curr = fp.tell() - OBJ_HEADER_BASE_STRUCT.size
         self.obj_next = fp.tell() + self.data_size % 4  # read padding bytes
 
-    def __read_content(self, fp: IO):
+    def __read_content(self, fp: BinaryIO) -> None:
         self._content = []
         if self.obj_type == LOG_CONTAINER:
             m = LOG_CONTAINER_STRUCT.unpack(fp.read(LOG_CONTAINER_STRUCT.size))
@@ -336,9 +336,24 @@ class BLFObject:
         fp.seek(self.obj_next)
 
 
-class BLFReader:
+class AbstractLogReader:
 
-    def __init__(self, fp: IO, filter: MessageFilter = None):
+    def __init__(self) -> None:
+        pass
+
+    def read_message(self) -> Message:
+        pass
+
+    def seek(self, offset: int, whence: int = SEEK_SET) -> None:
+        pass
+
+    def tell(self) -> int:
+        pass
+
+
+class BLFReader(AbstractLogReader):
+
+    def __init__(self, fp: BinaryIO, filter: Optional[MessageFilter] = None) -> None:
         self.fp = fp
         self.buffer: List[Message] = []
         self.content_offset = 0
@@ -347,7 +362,7 @@ class BLFReader:
             self.filter = MessageFilter()
         self.__read_header()
 
-    def __iter__(self):
+    def __iter__(self) -> Generator[Message, None, None]:
         while True:
             try:
                 obj = self.__read_object()
@@ -356,10 +371,23 @@ class BLFReader:
             for msg in obj.content:
                 yield msg
 
-    def set_filter(self, filter: MessageFilter):
-        self.filter = filter
+    def __find_nearest_object(self) -> None:
+        data = self.fp.read(4)
+        if data == b"LOBJ":
+            self.fp.seek(-4, SEEK_CUR)
+            return
+        while True:
+            data = self.fp.read(10240)
+            if not data:
+                raise EOFError()
+            i = data.find(b"LOBJ")
+            if i < 0:
+                self.fp.seek(-3, SEEK_CUR)
+            else:
+                self.fp.seek(i - len(data), SEEK_CUR)
+                break
 
-    def __read_header(self):
+    def __read_header(self) -> None:
         data = self.fp.read(FILE_HEADER_STRUCT.size)
         header = FILE_HEADER_STRUCT.unpack(data)
         if header[0] != b"LOGG":
@@ -390,42 +418,19 @@ class BLFReader:
             if self.filter.pass_(msg):
                 return msg
 
-    def find_nearest_object(self):
-        data = self.fp.read(4)
-        if data == "LOBJ":
-            self.fp.seek(-4, SEEK_CUR)
-            return
-        while True:
-            data = self.fp.read(10240)
-            if not data:
-                raise EOFError()
-            i = data.find(b"LOBJ")
-            if i < 0:
-                self.fp.seek(-3, SEEK_CUR)
-            else:
-                self.fp.seek(i - len(data), SEEK_CUR)
-                break
-
-    def find_nearest_object_reverse(self):
-        while self.fp.tell() >= self.content_offset:
-            self.fp.seek(-10240, SEEK_CUR)
-            data = self.fp.read(10240)
-            self.fp.seek(-len(data), SEEK_CUR)
-            i = data.rfind(b"LOBJ")
-            if i >= 0:
-                self.fp.seek(i, SEEK_CUR)
-                break
-
-    def seek(self, offset: int, whence: int = SEEK_SET):
+    def seek(self, offset: int, whence: int = SEEK_SET) -> None:
         if offset < self.content_offset:
             offset = self.content_offset
         self.fp.seek(offset, whence)
-        self.find_nearest_object()
+        self.__find_nearest_object()
 
     def tell(self) -> int:
         return self.fp.tell()
 
-    def seek_seconds(self, seconds: int):
+    def set_filter(self, filter: MessageFilter) -> None:
+        self.filter = filter
+
+    def seek_seconds(self, seconds: int) -> None:
         target = self.start_timestamp + seconds
         self.fp.seek(0, SEEK_END)
         offset = self.fp.tell() // 2
@@ -457,18 +462,17 @@ class MyFilter(MessageFilter):
 
 class MySignal:
 
-    def __init__(self, msg: Message, offset: int):
+    def __init__(self, msg: Message, offset: int) -> None:
         self.offset = offset
         self.msg = msg
         self.value = (msg.data[3] & 0x1FE) >> 1
 
 
-def search_signals(blf: BLFReader) -> List[MySignal]:
+def search_signals(blf: AbstractLogReader) -> List[MySignal]:
     n = 32
     msg = blf.read_message()
     sig_first = MySignal(msg, blf.tell())
-    blf.seek(0, SEEK_END)
-    blf.find_nearest_object_reverse()
+    blf.seek(-1048576, SEEK_END)
     msg = blf.read_message()
     sig_last = MySignal(msg, blf.tell())
     stack = []
