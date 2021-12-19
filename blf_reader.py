@@ -345,12 +345,12 @@ class BLFReader:
         self.current_offset = 0
         if filter is None:
             self.filter = MessageFilter()
-        self.read_header()
+        self.__read_header()
 
     def __iter__(self):
         while True:
             try:
-                obj = self.read_object()
+                obj = self.__read_object()
             except EOFError:
                 break
             for msg in obj.content:
@@ -359,7 +359,7 @@ class BLFReader:
     def set_filter(self, filter: MessageFilter):
         self.filter = filter
 
-    def read_header(self):
+    def __read_header(self):
         data = self.fp.read(FILE_HEADER_STRUCT.size)
         header = FILE_HEADER_STRUCT.unpack(data)
         if header[0] != b"LOGG":
@@ -373,7 +373,7 @@ class BLFReader:
         self.fp.read(self.header_size - FILE_HEADER_STRUCT.size)
         self.content_offset = self.fp.tell()
 
-    def read_object(self) -> BLFObject:
+    def __read_object(self) -> BLFObject:
         obj = BLFObject(self.start_timestamp)
         obj.parse(self.fp)
         return obj
@@ -383,22 +383,12 @@ class BLFReader:
             self.buffer = []
         while True:
             if not self.buffer:
-                obj = self.read_object()
+                obj = self.__read_object()
                 self.buffer.extend(obj.content)
                 self.current_offset = self.fp.tell()
             msg = self.buffer.pop()
             if self.filter.pass_(msg):
                 return msg
-
-    def findr_nearest_object(self):
-        while self.fp.tell() >= self.content_offset:
-            self.fp.seek(-10240, SEEK_CUR)
-            data = self.fp.read(10240)
-            self.fp.seek(-len(data), SEEK_CUR)
-            i = data.rfind(b"LOBJ")
-            if i >= 0:
-                self.fp.seek(i, SEEK_CUR)
-                break
 
     def find_nearest_object(self):
         data = self.fp.read(4)
@@ -416,14 +406,24 @@ class BLFReader:
                 self.fp.seek(i - len(data), SEEK_CUR)
                 break
 
+    def find_nearest_object_reverse(self):
+        while self.fp.tell() >= self.content_offset:
+            self.fp.seek(-10240, SEEK_CUR)
+            data = self.fp.read(10240)
+            self.fp.seek(-len(data), SEEK_CUR)
+            i = data.rfind(b"LOBJ")
+            if i >= 0:
+                self.fp.seek(i, SEEK_CUR)
+                break
+
     def seek(self, offset: int, whence: int = SEEK_SET):
         if offset < self.content_offset:
             offset = self.content_offset
         self.fp.seek(offset, whence)
         self.find_nearest_object()
 
-    def tell(self, *args) -> int:
-        return self.fp.tell(*args)
+    def tell(self) -> int:
+        return self.fp.tell()
 
     def seek_seconds(self, seconds: int):
         target = self.start_timestamp + seconds
@@ -431,14 +431,14 @@ class BLFReader:
         offset = self.fp.tell() // 2
         self.fp.seek(offset)
         while True:
-            obj = self.read_object()
+            obj = self.__read_object()
             if offset < OBJ_HEADER_BASE_STRUCT.size:
                 return
             elif target < obj.content[0].timestamp:
                 offset = offset // 2
                 self.fp.seek(-offset, SEEK_SET)
             elif obj.content[-1].timestamp < target:
-                next_obj = self.read_object()
+                next_obj = self.__read_object()
                 if target < next_obj.content[0].timestamp:
                     self.fp.seek(obj.obj_curr)
                     return
@@ -468,7 +468,7 @@ def search_signals(blf: BLFReader) -> List[MySignal]:
     msg = blf.read_message()
     sig_first = MySignal(msg, blf.tell())
     blf.seek(0, SEEK_END)
-    blf.findr_nearest_object()
+    blf.find_nearest_object_reverse()
     msg = blf.read_message()
     sig_last = MySignal(msg, blf.tell())
     stack = []
