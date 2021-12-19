@@ -441,14 +441,14 @@ class BLFReader(AbstractLogReader):
                 return
             elif target < obj.content[0].timestamp:
                 offset = offset // 2
-                self.fp.seek(-offset, SEEK_SET)
+                self.fp.seek(-offset, SEEK_CUR)
             elif obj.content[-1].timestamp < target:
                 next_obj = self.__read_object()
                 if target < next_obj.content[0].timestamp:
                     self.fp.seek(obj.obj_curr)
                     return
                 offset = offset // 2
-                self.fp.seek(offset, SEEK_SET)
+                self.fp.seek(offset, SEEK_CUR)
             else:
                 self.fp.seek(obj.obj_curr)
                 return
