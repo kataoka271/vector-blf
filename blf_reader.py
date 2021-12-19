@@ -115,7 +115,7 @@ class BLFError(Exception):
 
 class Message:
 
-    def __init__(self, timestamp: int = 0, id: int = 0, channel: int = 0, data: bytes = b"") -> None:
+    def __init__(self, timestamp: float = 0, id: int = 0, channel: int = 0, data: bytes = b"") -> None:
         self.timestamp = timestamp
         self.id = id
         self.channel = channel
@@ -128,7 +128,7 @@ class Message:
 
 class CANMessage(Message):
 
-    def __init__(self, timestamp: int) -> None:
+    def __init__(self, timestamp: float) -> None:
         super().__init__()
         self.timestamp = timestamp
 
@@ -150,7 +150,7 @@ class CANMessage(Message):
 
 class CANFDMessage(Message):
 
-    def __init__(self, timestamp: int) -> None:
+    def __init__(self, timestamp: float) -> None:
         super().__init__()
         self.timestamp = timestamp
 
@@ -173,7 +173,7 @@ class CANFDMessage(Message):
 
 class CANFDMessage64(Message):
 
-    def __init__(self, timestamp: int) -> None:
+    def __init__(self, timestamp: float) -> None:
         super().__init__()
         self.timestamp = timestamp
 
@@ -199,7 +199,7 @@ class CANFDMessage64(Message):
 
 class CANErrorMessage(Message):
 
-    def __init__(self, timestamp: int) -> None:
+    def __init__(self, timestamp: float) -> None:
         super().__init__()
         self.timestamp = timestamp
 
@@ -221,7 +221,7 @@ class CANErrorMessage(Message):
 
 class EthernetFrame(Message):
 
-    def __init__(self, timestamp: int) -> None:
+    def __init__(self, timestamp: float) -> None:
         super().__init__()
         self.timestamp = timestamp
 
@@ -299,6 +299,7 @@ class BLFObject:
                     break
                 self._content.extend(obj._content)
         else:
+            timestamp: int
             if self.version == 1:
                 m = OBJ_HEADER_V1_STRUCT.unpack(fp.read(OBJ_HEADER_V1_STRUCT.size))
                 flags = m[0]
@@ -313,22 +314,22 @@ class BLFObject:
                 factor = 10 * 1e-6
             else:
                 factor = 1e-9
-            self.timestamp = timestamp * factor + self.start_timestamp
+            timestamp_ = timestamp * factor + self.start_timestamp
             msg: Message
             if self.obj_type in (CAN_MESSAGE, CAN_MESSAGE2):
-                msg = CANMessage(self.timestamp)
+                msg = CANMessage(timestamp_)
                 msg.parse(fp)
                 self._content.append(msg)
             elif self.obj_type == CAN_FD_MESSAGE:
-                msg = CANFDMessage(self.timestamp)
+                msg = CANFDMessage(timestamp_)
                 msg.parse(fp)
                 self._content.append(msg)
             elif self.obj_type == CAN_FD_MESSAGE_64:
-                msg = CANFDMessage64(self.timestamp)
+                msg = CANFDMessage64(timestamp_)
                 msg.parse(fp)
                 self._content.append(msg)
             elif self.obj_type == ETHERNET_FRAME:
-                msg = EthernetFrame(self.timestamp)
+                msg = EthernetFrame(timestamp_)
                 msg.parse(fp)
                 self._content.append(msg)
             elif self.obj_type == CAN_ERROR_EXT:
@@ -371,22 +372,6 @@ class BLFReader(AbstractLogReader):
             for msg in obj.content:
                 yield msg
 
-    def __find_nearest_object(self) -> None:
-        data = self.fp.read(4)
-        if data == b"LOBJ":
-            self.fp.seek(-4, SEEK_CUR)
-            return
-        while True:
-            data = self.fp.read(10240)
-            if not data:
-                raise EOFError()
-            i = data.find(b"LOBJ")
-            if i < 0:
-                self.fp.seek(-3, SEEK_CUR)
-            else:
-                self.fp.seek(i - len(data), SEEK_CUR)
-                break
-
     def __read_header(self) -> None:
         data = self.fp.read(FILE_HEADER_STRUCT.size)
         header = FILE_HEADER_STRUCT.unpack(data)
@@ -404,7 +389,24 @@ class BLFReader(AbstractLogReader):
     def __read_object(self) -> BLFObject:
         obj = BLFObject(self.start_timestamp)
         obj.parse(self.fp)
+        self.current_offset = self.fp.tell()
         return obj
+
+    def __find_nearest_object(self) -> None:
+        data = self.fp.read(4)
+        if data == b"LOBJ":
+            self.fp.seek(-4, SEEK_CUR)
+            return
+        while True:
+            data = self.fp.read(10240)
+            if not data:
+                raise EOFError()
+            i = data.find(b"LOBJ")
+            if i < 0:
+                self.fp.seek(-3, SEEK_CUR)
+            else:
+                self.fp.seek(i - len(data), SEEK_CUR)
+                break
 
     def read_message(self) -> Message:
         if self.current_offset != self.fp.tell():
@@ -413,7 +415,6 @@ class BLFReader(AbstractLogReader):
             if not self.buffer:
                 obj = self.__read_object()
                 self.buffer.extend(obj.content)
-                self.current_offset = self.fp.tell()
             msg = self.buffer.pop()
             if self.filter.pass_(msg):
                 return msg
@@ -430,7 +431,7 @@ class BLFReader(AbstractLogReader):
     def set_filter(self, filter: MessageFilter) -> None:
         self.filter = filter
 
-    def seek_seconds(self, seconds: int) -> None:
+    def seek_seconds(self, seconds: float) -> None:
         target = self.start_timestamp + seconds
         self.fp.seek(0, SEEK_END)
         offset = self.fp.tell() // 2
@@ -475,9 +476,7 @@ def search_signals(blf: AbstractLogReader) -> List[MySignal]:
     blf.seek(-1048576, SEEK_END)
     msg = blf.read_message()
     sig_last = MySignal(msg, blf.tell())
-    stack = []
-    stack.append(sig_first)
-    stack.append(sig_last)
+    stack = [sig_first, sig_last]
     results = []
     while len(stack) >= 2:
         last = stack.pop()
