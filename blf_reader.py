@@ -126,7 +126,7 @@ class Message:
         raise NotImplementedError()
 
     def __repr__(self) -> str:
-        return "<message id={:x} channel={} data=\"{!s}\" timestamp={} />".format(self.id, self.channel, self.data.hex(","), self.timestamp)
+        return "<message id=0x{:x} channel={} data=\"{!s}\" timestamp={} />".format(self.id, self.channel, self.data.hex(","), self.timestamp)
 
 
 class CANMessage(Message):
