@@ -40,4 +40,5 @@ class DummyReader(AbstractLogReader):
         return len(self.messages)
 
 
-pprint.pprint(search_signals(DummyReader()))
+if __name__ == "__main__":
+    pprint.pprint(search_signals(DummyReader()))

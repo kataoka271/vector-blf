@@ -244,7 +244,7 @@ class EthernetFrame(Message):
 
 class MessageFilter:
 
-    def pass_(self, msg: Message) -> bool:
+    def match(self, msg: Message) -> bool:
         return True
 
 
@@ -434,7 +434,7 @@ class BLFReader(AbstractLogReader):
                 obj = self.__read_object()
                 self.buffer.extend(obj.content)
             msg = self.buffer.pop()
-            if self.msg_filter.pass_(msg):
+            if self.msg_filter.match(msg):
                 return msg
 
     def last_message(self) -> Message:
@@ -448,7 +448,7 @@ class BLFReader(AbstractLogReader):
                 obj = BLFObject(self.start_timestamp)
                 obj.parseBytes(buffer[i:])
                 for msg in reversed(obj.content):
-                    if self.msg_filter.pass_(msg):
+                    if self.msg_filter.match(msg):
                         self.fp.seek(i - len(buffer), SEEK_CUR)
                         return msg
         raise BLFError("no message in this file")
