@@ -262,6 +262,11 @@ class BLFObject:
         self.__read_header(fp)
         self.__read_content(fp)
 
+    def parseBytes(self, data: bytes) -> None:
+        fp = BytesIO(data)
+        self.__read_header(fp)
+        self.__read_content(fp)
+
     def __read_header(self, fp: BinaryIO) -> None:
         data = fp.read(OBJ_HEADER_BASE_STRUCT.size)
         if not data:
@@ -365,6 +370,7 @@ class BLFReader(AbstractLogReader):
     buffer: List[Message]
     content_offset: int
     current_offset: int
+    filter: MessageFilter
 
     def __init__(self, fp: BinaryIO, filter: Optional[MessageFilter] = None) -> None:
         self.fp = fp
@@ -439,10 +445,11 @@ class BLFReader(AbstractLogReader):
             i = len(buffer)
             while i >= 0:
                 i = buffer.rfind(b"LOBJ", 0, i)
-                self.fp.seek(i - len(buffer), SEEK_CUR)
-                obj = self.__read_object()
+                obj = BLFObject(self.start_timestamp)
+                obj.parseBytes(buffer[i:])
                 for msg in reversed(obj.content):
                     if self.filter.pass_(msg):
+                        self.fp.seek(i - len(buffer), SEEK_CUR)
                         return msg
         raise BLFError("no message in this file")
 
@@ -505,8 +512,7 @@ class MySignal:
         return "<signal id=0x{:x} offset={} value={} timestamp={} />".format(self.msg.id, self.offset, self.value, self.msg.timestamp)
 
 
-def search_signals(blf: AbstractLogReader) -> List[MySignal]:
-    n = 32
+def search_signals(blf: AbstractLogReader, resolution: int = 32) -> List[MySignal]:
     msg = blf.read_message()
     sig_first = MySignal(msg, blf.tell())
     msg = blf.last_message()
@@ -516,24 +522,20 @@ def search_signals(blf: AbstractLogReader) -> List[MySignal]:
     while len(stack) >= 2:
         last = stack.pop()
         first = stack.pop()
-        dt = (first.offset - last.offset) / n
+        dt = (last.offset - first.offset) / resolution
         if abs(dt) < 1 / blf.length or last.offset - first.offset < 0.01:  # 1M bytes
             blf.seek(first.offset)
             while first.offset < last.offset:
                 msg = blf.read_message()
-                offset = blf.tell()
-                sig = MySignal(msg, offset)
+                sig = MySignal(msg, blf.tell())
                 if first.value != sig.value:
                     results.append(sig)
                 first = sig
         else:
-            offset = last.offset
-            while first.offset < offset:
-                offset += dt
-                blf.seek(offset)
+            while first.offset < last.offset:
+                blf.seek(last.offset - dt)
                 msg = blf.read_message()
-                offset = blf.tell()
-                sig = MySignal(msg, offset)
+                sig = MySignal(msg, blf.tell())
                 if sig.value != last.value:
                     stack.append(sig)
                     stack.append(last)
