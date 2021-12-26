@@ -125,6 +125,9 @@ class Message:
     def parse(self, fp: BinaryIO) -> None:
         raise NotImplementedError()
 
+    def __repr__(self) -> str:
+        return "<message id={:x} channel={} data=\"{!s}\" timestamp={} />".format(self.id, self.channel, self.data.hex(","), self.timestamp)
+
 
 class CANMessage(Message):
 
@@ -280,7 +283,8 @@ class BLFObject:
         self.obj_type = header[4]
         self.data_size = self.obj_size - OBJ_HEADER_BASE_STRUCT.size
         self.obj_curr = fp.tell() - OBJ_HEADER_BASE_STRUCT.size
-        self.obj_next = fp.tell() + self.data_size % 4  # read padding bytes
+        self.pad_size = self.data_size % 4
+        self.obj_next = fp.tell() + self.data_size + self.pad_size  # read padding bytes
 
     def __read_content(self, fp: BinaryIO) -> None:
         self._content = []
@@ -288,12 +292,12 @@ class BLFObject:
             m = LOG_CONTAINER_STRUCT.unpack(fp.read(LOG_CONTAINER_STRUCT.size))
             compression_method = m[0]
             uncompressed_size = m[1]
+            size = self.data_size - LOG_CONTAINER_STRUCT.size
+            data = fp.read(size)
             if compression_method == NO_COMPRESSION:
-                fp_ = BytesIO(fp.read(self.data_size - LOG_CONTAINER_STRUCT.size))
-            elif compression_method == ZLIB_DEFLATE:
-                data = fp.read(self.data_size - LOG_CONTAINER_STRUCT.size)
-                data = zlib.decompress(data, 15, uncompressed_size)
                 fp_ = BytesIO(data)
+            elif compression_method == ZLIB_DEFLATE:
+                fp_ = BytesIO(zlib.decompress(data, 15, uncompressed_size))
             else:
                 raise BLFError("unknown compression method")
             while True:
@@ -338,6 +342,8 @@ class BLFObject:
                 msg.parse(fp)
                 self._content.append(msg)
             elif self.obj_type == CAN_ERROR_EXT:
+                pass
+            else:
                 pass
         fp.seek(self.obj_next)
 
@@ -412,18 +418,18 @@ class BLFReader(AbstractLogReader):
 
     def __find_nearest_object(self) -> None:
         data = self.fp.read(4)
+        self.fp.seek(-len(data), SEEK_CUR)
         if data == b"LOBJ":
-            self.fp.seek(-4, SEEK_CUR)
             return
         while True:
             data = self.fp.read(10240)
-            if not data:
+            if len(data) < 4:
                 raise EOFError()
             i = data.find(b"LOBJ")
             if i < 0:
                 self.fp.seek(-3, SEEK_CUR)
             else:
-                self.fp.seek(i - len(data), SEEK_CUR)
+                self.fp.seek(-len(data) + i, SEEK_CUR)
                 break
 
     def read_message(self) -> Message:
@@ -542,3 +548,16 @@ def search_signals(blf: AbstractLogReader, resolution: int = 32) -> List[MySigna
                 last = sig
     results.insert(0, sig_first)
     return results
+
+
+if __name__ == "__main__":
+    fp = open(r"sample\logfile.blf", "rb")
+    blf = BLFReader(fp)
+    blf.seek(0)
+    try:
+        print(blf.read_message())
+        print(blf.read_message())
+        print(blf.read_message())
+        print(blf.read_message())
+    except EOFError:
+        pass
