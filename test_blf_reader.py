@@ -5,7 +5,6 @@ import pprint
 class DummyReader(AbstractLogReader):
 
     def __init__(self) -> None:
-        super().__init__()
         self.messages = [Message(i, 0x695, 1, b"000\x00") for i in range(0, 30)] + \
                         [Message(i, 0x695, 1, b"000\x02") for i in range(30, 45)] + \
                         [Message(i, 0x695, 1, b"000\x04") for i in range(45, 66)] + \

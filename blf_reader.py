@@ -345,23 +345,23 @@ class BLFObject:
 class AbstractLogReader:
 
     def __init__(self) -> None:
-        pass
+        raise NotImplementedError()
 
     def read_message(self) -> Message:
-        pass
+        raise NotImplementedError()
 
     def last_message(self) -> Message:
-        pass
+        raise NotImplementedError()
 
     def seek(self, offset: float) -> None:
-        pass
+        raise NotImplementedError()
 
     def tell(self) -> float:
-        pass
+        raise NotImplementedError()
 
     @property
     def length(self) -> int:
-        pass
+        raise NotImplementedError()
 
 
 class BLFReader(AbstractLogReader):
@@ -497,7 +497,7 @@ class BLFReader(AbstractLogReader):
 
 class MyFilter(MessageFilter):
 
-    def pass_(self, msg: Message) -> bool:
+    def match(self, msg: Message) -> bool:
         return msg.id == 0x695 and msg.channel == 1
 
 
