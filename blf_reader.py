@@ -370,15 +370,15 @@ class BLFReader(AbstractLogReader):
     buffer: List[Message]
     content_offset: int
     current_offset: int
-    filter: MessageFilter
+    msg_filter: MessageFilter
 
-    def __init__(self, fp: BinaryIO, filter: Optional[MessageFilter] = None) -> None:
+    def __init__(self, fp: BinaryIO, msg_filter: Optional[MessageFilter] = None) -> None:
         self.fp = fp
         self.buffer = []
         self.content_offset = 0
         self.current_offset = 0
-        if filter is None:
-            self.filter = MessageFilter()
+        if msg_filter is None:
+            self.msg_filter = MessageFilter()
         self.__read_header()
 
     def __iter__(self) -> Generator[Message, None, None]:
@@ -434,7 +434,7 @@ class BLFReader(AbstractLogReader):
                 obj = self.__read_object()
                 self.buffer.extend(obj.content)
             msg = self.buffer.pop()
-            if self.filter.pass_(msg):
+            if self.msg_filter.pass_(msg):
                 return msg
 
     def last_message(self) -> Message:
@@ -448,7 +448,7 @@ class BLFReader(AbstractLogReader):
                 obj = BLFObject(self.start_timestamp)
                 obj.parseBytes(buffer[i:])
                 for msg in reversed(obj.content):
-                    if self.filter.pass_(msg):
+                    if self.msg_filter.pass_(msg):
                         self.fp.seek(i - len(buffer), SEEK_CUR)
                         return msg
         raise BLFError("no message in this file")
@@ -464,8 +464,8 @@ class BLFReader(AbstractLogReader):
     def tell(self) -> float:
         return (self.fp.tell() - self.content_offset) / (self.file_size - self.content_offset)
 
-    def set_filter(self, filter: MessageFilter) -> None:
-        self.filter = filter
+    def set_msg_filter(self, msg_filter: MessageFilter) -> None:
+        self.msg_filter = msg_filter
 
     def seek_seconds(self, seconds: float) -> None:
         target = self.start_timestamp + seconds
