@@ -2,7 +2,7 @@ from io import SEEK_CUR, SEEK_END, BytesIO
 import datetime
 import struct
 import time
-from typing import Generator, List, Optional, Tuple, BinaryIO
+from typing import Callable, Generator, List, Optional, Tuple, BinaryIO
 import zlib
 
 
@@ -126,7 +126,7 @@ class Message:
         raise NotImplementedError()
 
     def __repr__(self) -> str:
-        return "<message id=0x{:x} channel={} data=\"{!s}\" timestamp={} />".format(self.id, self.channel, self.data.hex(","), self.timestamp)
+        return "<message id=0x{:x} channel={} data=\"{!s}\" timestamp={} />".format(self.id, self.channel, self.data.hex(" "), self.timestamp)
 
 
 class CANMessage(Message):
@@ -247,8 +247,20 @@ class EthernetFrame(Message):
 
 class MessageFilter:
 
+    def __init__(self, id: Optional[int] = None, channel: Optional[int] = None, func: Optional[Callable[[Message], bool]] = None) -> None:
+        self.id = id
+        self.channel = channel
+        self.func = func
+
     def match(self, msg: Message) -> bool:
-        return True
+        ret = True
+        if self.id is not None:
+            ret = ret and self.id == msg.id
+        if self.channel is not None:
+            ret = ret and self.channel == msg.channel
+        if self.func is not None:
+            ret = ret and self.func(msg)
+        return ret
 
 
 class BLFObject:
@@ -342,7 +354,9 @@ class BLFObject:
                 msg.parse(fp)
                 self._content.append(msg)
             elif self.obj_type == CAN_ERROR_EXT:
-                pass
+                msg = CANErrorMessage(timestamp_)
+                msg.parse(fp)
+                self._content.append(msg)
             else:
                 pass
         fp.seek(self.obj_next)
@@ -385,6 +399,8 @@ class BLFReader(AbstractLogReader):
         self.current_offset = 0
         if msg_filter is None:
             self.msg_filter = MessageFilter()
+        else:
+            self.msg_filter = msg_filter
         self.__read_header()
 
     def __iter__(self) -> Generator[Message, None, None]:
@@ -552,7 +568,7 @@ def search_signals(blf: AbstractLogReader, resolution: int = 32) -> List[MySigna
 
 if __name__ == "__main__":
     fp = open(r"sample\logfile.blf", "rb")
-    blf = BLFReader(fp)
+    blf = BLFReader(fp, MessageFilter(func=lambda m: len(m.data) > 1 and m.data[0] == 1))
     blf.seek(0)
     try:
         print(blf.read_message())
