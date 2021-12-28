@@ -318,7 +318,7 @@ class BLFObject:
                     obj.parse(fp_)
                 except EOFError:
                     break
-                self._content.extend(obj._content)
+                self._content.extend(obj.content)
         else:
             timestamp: int
             if self.version == 1:
