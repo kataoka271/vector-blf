@@ -1,12 +1,16 @@
-from io import SEEK_CUR, SEEK_END, BytesIO
 from abc import ABC, abstractmethod, abstractproperty
+from io import SEEK_CUR, SEEK_END, BytesIO
+from typing import BinaryIO, Callable, Generator, List, Optional, Tuple
 import datetime
+import logging
 import struct
 import time
-from typing import Callable, Generator, List, Optional, Tuple, BinaryIO
 import zlib
-import blf_types
 
+from blf_types import ObjectType
+
+
+logging.basicConfig(level=logging.DEBUG, format='<%(levelname)s>%(message)s</%(levelname)s>')
 
 # 0 = unknown, 2 = CANoe
 APPLICATION_ID = 5
@@ -121,10 +125,11 @@ class BLFError(Exception):
 
 class Message(ABC):
 
-    def __init__(self, timestamp: float = 0, id: int = 0, channel: int = 0, data: bytes = b"") -> None:
+    def __init__(self, timestamp: float = 0, id: int = 0, channel: int = 0, dlc: int = 0, data: bytes = b"") -> None:
         self.timestamp = timestamp
         self.id = id
         self.channel = channel
+        self.dlc = dlc
         self.data = data
         self.data_length = len(data)
 
@@ -133,7 +138,8 @@ class Message(ABC):
         raise NotImplementedError()
 
     def __str__(self) -> str:
-        return "<message id=0x{:x} channel={} data=\"{!s}\" timestamp={} />".format(self.id, self.channel, self.data.hex(" "), self.timestamp)
+        return "<message id=0x{id:x} channel={channel} dlc={dlc} data=\"{data!s}\" timestamp={timestamp} />".format(
+            id=self.id, channel=self.channel, dlc=self.dlc, data=self.data.hex(" "), timestamp=self.timestamp)
 
 
 class CANMessage(Message):
@@ -176,7 +182,7 @@ class CANFDMessage(Message):
         self.brs = 1 if m[6] & BRS != 0 else 0
         self.esi = 1 if m[6] & ESI != 0 else 0
         self.dlc = m[2]
-        self.data_length = DLC_MAP[self.dlc]
+        self.data_length = m[7]
         self.data = fp.read(self.data_length)
         self.channel = m[0]
 
@@ -193,7 +199,7 @@ class CANFDMessage64(Message):
         # bit_rate_used_in_data_phase, time_offset_of_brs_field,
         # time_offset_of_crc_delimiter_field, bit_count, direction,
         # offset_if_extDataOffset_is_used, crc
-        m = CAN_FD_MSG_64_STRUCT.unpack(fp.read(CAN_MSG_STRUCT.size))
+        m = CAN_FD_MSG_64_STRUCT.unpack(fp.read(CAN_FD_MSG_64_STRUCT.size))
         self.id = m[4] & 0x1FFFFFFF
         self.is_extended_id = m[4] & CAN_MSG_EXT != 0
         self.dir = (m[6] & DIR_64) >> DIR_64_S
@@ -201,8 +207,8 @@ class CANFDMessage64(Message):
         self.fdf = 1 if m[6] & FDF_64 != 0 else 0
         self.brs = 1 if m[6] & BRS_64 != 0 else 0
         self.esi = 1 if m[6] & ESI_64 != 0 else 0
-        self.dlc = m[2]
-        self.data_length = DLC_MAP[self.dlc]
+        self.dlc = m[1]
+        self.data_length = m[2]
         self.data = fp.read(self.data_length)
         self.channel = m[0]
 
@@ -366,11 +372,11 @@ class BLFObject:
                 self._content.append(msg)
             else:
                 try:
-                    obj_type = blf_types.ObjectType(self.obj_type).name
+                    obj_type = ObjectType(self.obj_type).name
                 except ValueError:
                     obj_type = str(self.obj_type)
                 obj_data = fp.read(self.data_size)[:16].hex(' ')
-                print(f'<unknown-object type="{obj_type}" data="{obj_data}" />')
+                logging.debug(f'<unknown-object type="{obj_type}" data="{obj_data}" />')
         fp.seek(self.obj_next)
 
 
@@ -472,9 +478,10 @@ class BLFReader(AbstractLogReader):
             if not self.buffer:
                 obj = self.__read_object()
                 self.buffer.extend(obj.content)
-            msg = self.buffer.pop()
-            if self.msg_filter.match(msg):
-                return msg
+            else:
+                msg = self.buffer.pop()
+                if self.msg_filter.match(msg):
+                    return msg
 
     def last_message(self) -> Message:
         self.fp.seek(0, SEEK_END)
@@ -584,8 +591,8 @@ def search_signals(blf: AbstractLogReader, resolution: int = 32) -> List[MySigna
 
 
 if __name__ == "__main__":
-    fp = open(r"sample\logfile.blf", "rb")
-    blf = BLFReader(fp, MessageFilter(func=lambda m: len(m.data) > 1 and m.data[0] == 1))
+    fp = open(r"sample\test_CanFdMessage.blf", "rb")
+    blf = BLFReader(fp, MessageFilter())
     blf.seek(0)
     try:
         print(blf.read_message())
