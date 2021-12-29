@@ -1,13 +1,17 @@
 from io import SEEK_CUR, SEEK_END, BytesIO
+from abc import ABC, abstractmethod, abstractproperty
 import datetime
 import struct
 import time
 from typing import Callable, Generator, List, Optional, Tuple, BinaryIO
 import zlib
+import blf_types
 
 
 # 0 = unknown, 2 = CANoe
 APPLICATION_ID = 5
+
+LOGG = b"LOGG"
 
 # signature ("LOGG"), header_size,
 # application_ID, application_major, application_minor, application_build,
@@ -18,6 +22,8 @@ FILE_HEADER_STRUCT = struct.Struct("<4sLBBBBBBBBQQLL8H8H")
 
 # Pad file header to this size
 FILE_HEADER_SIZE = 144
+
+LOBJ = b"LOBJ"
 
 # signature ("LOBJ"), header_size, header_version, object_size, object_type
 OBJ_HEADER_BASE_STRUCT = struct.Struct("<4sHHLL")
@@ -113,7 +119,7 @@ class BLFError(Exception):
     pass
 
 
-class Message:
+class Message(ABC):
 
     def __init__(self, timestamp: float = 0, id: int = 0, channel: int = 0, data: bytes = b"") -> None:
         self.timestamp = timestamp
@@ -122,10 +128,11 @@ class Message:
         self.data = data
         self.data_length = len(data)
 
+    @abstractmethod
     def parse(self, fp: BinaryIO) -> None:
         raise NotImplementedError()
 
-    def __repr__(self) -> str:
+    def __str__(self) -> str:
         return "<message id=0x{:x} channel={} data=\"{!s}\" timestamp={} />".format(self.id, self.channel, self.data.hex(" "), self.timestamp)
 
 
@@ -287,7 +294,7 @@ class BLFObject:
         if not data:
             raise EOFError()
         header = OBJ_HEADER_BASE_STRUCT.unpack(data)
-        if header[0] != b"LOBJ":
+        if header[0] != LOBJ:
             raise BLFError("missing object magic number: LOBJ")
         # self.header_size = header[1]
         self.version = header[2]
@@ -358,28 +365,38 @@ class BLFObject:
                 msg.parse(fp)
                 self._content.append(msg)
             else:
-                pass
+                try:
+                    obj_type = blf_types.ObjectType(self.obj_type).name
+                except ValueError:
+                    obj_type = str(self.obj_type)
+                obj_data = fp.read(self.data_size)[:16].hex(' ')
+                print(f'<unknown-object type="{obj_type}" data="{obj_data}" />')
         fp.seek(self.obj_next)
 
 
-class AbstractLogReader:
+class AbstractLogReader(ABC):
 
+    @abstractmethod
     def __init__(self) -> None:
         raise NotImplementedError()
 
+    @abstractmethod
     def read_message(self) -> Message:
         raise NotImplementedError()
 
+    @abstractmethod
     def last_message(self) -> Message:
         raise NotImplementedError()
 
+    @abstractmethod
     def seek(self, offset: float) -> None:
         raise NotImplementedError()
 
+    @abstractmethod
     def tell(self) -> float:
         raise NotImplementedError()
 
-    @property
+    @abstractproperty
     def length(self) -> int:
         raise NotImplementedError()
 
@@ -415,7 +432,7 @@ class BLFReader(AbstractLogReader):
     def __read_header(self) -> None:
         data = self.fp.read(FILE_HEADER_STRUCT.size)
         header = FILE_HEADER_STRUCT.unpack(data)
-        if header[0] != b"LOGG":
+        if header[0] != LOGG:
             raise BLFError("missing file magic number: LOGG")
         self.header_size = header[1]
         self.file_size = header[10]
@@ -435,13 +452,13 @@ class BLFReader(AbstractLogReader):
     def __find_nearest_object(self) -> None:
         data = self.fp.read(4)
         self.fp.seek(-len(data), SEEK_CUR)
-        if data == b"LOBJ":
+        if data == LOBJ:
             return
         while True:
             data = self.fp.read(10240)
             if len(data) < 4:
                 raise EOFError()
-            i = data.find(b"LOBJ")
+            i = data.find(LOBJ)
             if i < 0:
                 self.fp.seek(-3, SEEK_CUR)
             else:
@@ -466,7 +483,7 @@ class BLFReader(AbstractLogReader):
             buffer = self.fp.read(102400)
             i = len(buffer)
             while i >= 0:
-                i = buffer.rfind(b"LOBJ", 0, i)
+                i = buffer.rfind(LOBJ, 0, i)
                 obj = BLFObject(self.start_timestamp)
                 obj.parseBytes(buffer[i:])
                 for msg in reversed(obj.content):
@@ -530,7 +547,7 @@ class MySignal:
         self.msg = msg
         self.value = msg.data[3]
 
-    def __repr__(self) -> str:
+    def __str__(self) -> str:
         return "<signal id=0x{:x} offset={} value={} timestamp={} />".format(self.msg.id, self.offset, self.value, self.msg.timestamp)
 
 
