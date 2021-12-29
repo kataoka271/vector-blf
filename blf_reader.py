@@ -123,7 +123,7 @@ class BLFError(Exception):
     pass
 
 
-class Message(ABC):
+class Message:
 
     def __init__(self, timestamp: float = 0, id: int = 0, channel: int = 0, dlc: int = 0, data: bytes = b"") -> None:
         self.timestamp = timestamp
@@ -133,7 +133,6 @@ class Message(ABC):
         self.data = data
         self.data_length = len(data)
 
-    @abstractmethod
     def parse(self, fp: BinaryIO) -> None:
         raise NotImplementedError()
 
@@ -591,7 +590,7 @@ def search_signals(blf: AbstractLogReader, resolution: int = 32) -> List[MySigna
 
 
 if __name__ == "__main__":
-    fp = open(r"sample\test_CanFdMessage.blf", "rb")
+    fp = open(".\\sample\\logfile.blf", "rb")
     blf = BLFReader(fp, MessageFilter())
     blf.seek(0)
     try:
