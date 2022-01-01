@@ -1,10 +1,9 @@
 from abc import ABC, abstractmethod, abstractproperty
 from io import SEEK_CUR, SEEK_END, BytesIO
-from typing import BinaryIO, Callable, Generator, List, Optional, Tuple
+from typing import BinaryIO, Callable, Generator, List, Optional, NamedTuple
 import datetime
 import logging
 import struct
-import time
 import zlib
 
 from blf_types import ObjectType
@@ -101,22 +100,39 @@ TIME_ONE_NANS = 0x00000002
 DLC_MAP = [0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 16, 20, 24, 32, 48, 64]
 
 
-def timestamp_to_systemtime(timestamp: float) -> Tuple[int, int, int, int, int, int, int, int]:
-    if timestamp is None or timestamp < 631152000:
-        return (0, 0, 0, 0, 0, 0, 0, 0)
-    t = datetime.datetime.fromtimestamp(timestamp)
-    return (t.year, t.month, t.isoweekday() % 7, t.day,
-            t.hour, t.minute, t.second, int(round(t.microsecond / 1000.0)))
+class SystemTime(NamedTuple):
+    year: int
+    month: int
+    weekday: int
+    day: int
+    hour: int
+    minute: int
+    second: int
+    millisecond: int
 
 
-def systemtime_to_timestamp(systemtime: Tuple[int, ...]) -> float:
+def datetime_to_systemtime(t: datetime.datetime) -> SystemTime:
+    return SystemTime(t.year,
+                      t.month,
+                      t.isoweekday() % 7,
+                      t.day,
+                      t.hour,
+                      t.minute,
+                      t.second,
+                      t.microsecond // 1000)
+
+
+def systemtime_to_datetime(systemtime: SystemTime) -> datetime.datetime:
     try:
-        t = datetime.datetime(
-            systemtime[0], systemtime[1], systemtime[3], systemtime[4],
-            systemtime[5], systemtime[6], systemtime[7] * 1000)
-        return time.mktime(t.timetuple()) + systemtime[7] / 1000.0
+        return datetime.datetime(systemtime.year,
+                                 systemtime.month,
+                                 systemtime.day,
+                                 systemtime.hour,
+                                 systemtime.minute,
+                                 systemtime.second,
+                                 systemtime.millisecond * 1000)
     except ValueError:
-        return 0
+        return datetime.datetime.fromtimestamp(0)
 
 
 class BLFError(Exception):
@@ -125,7 +141,7 @@ class BLFError(Exception):
 
 class Message:
 
-    def __init__(self, timestamp: float = 0, id: int = 0, channel: int = 0, dlc: int = 0, data: bytes = b"") -> None:
+    def __init__(self, timestamp: int = 0, id: int = 0, channel: int = 0, dlc: int = 0, data: bytes = b"") -> None:
         self.timestamp = timestamp
         self.id = id
         self.channel = channel
@@ -137,15 +153,15 @@ class Message:
         raise NotImplementedError()
 
     def __str__(self) -> str:
-        return "<message id=0x{id:x} channel={channel} dlc={dlc} data=\"{data!s}\" timestamp={timestamp} />".format(
-            id=self.id, channel=self.channel, dlc=self.dlc, data=self.data.hex(" "), timestamp=self.timestamp)
+        return '<message id="0x{id:x}" channel="{channel}" dlc="{dlc}" data="{data!s}" timestamp="{timestamp}" />'.format(
+            id=self.id,
+            channel=self.channel,
+            dlc=self.dlc,
+            data=self.data.hex(" "),
+            timestamp=self.timestamp)
 
 
 class CANMessage(Message):
-
-    def __init__(self, timestamp: float) -> None:
-        super().__init__()
-        self.timestamp = timestamp
 
     def parse(self, fp: BinaryIO) -> None:
         # channel, flags, dlc, arbitration_id
@@ -165,10 +181,6 @@ class CANMessage(Message):
 
 class CANFDMessage(Message):
 
-    def __init__(self, timestamp: float) -> None:
-        super().__init__()
-        self.timestamp = timestamp
-
     def parse(self, fp: BinaryIO) -> None:
         # channel, flags, dlc, arbitration_id, frame_length, bit_count,
         # FD_flags, valid_data_bytes
@@ -187,10 +199,6 @@ class CANFDMessage(Message):
 
 
 class CANFDMessage64(Message):
-
-    def __init__(self, timestamp: float) -> None:
-        super().__init__()
-        self.timestamp = timestamp
 
     def parse(self, fp: BinaryIO) -> None:
         # channel, dlc, valid_payload_length_of_data, tx_count, arbitration_id,
@@ -214,10 +222,6 @@ class CANFDMessage64(Message):
 
 class CANErrorMessage(Message):
 
-    def __init__(self, timestamp: float) -> None:
-        super().__init__()
-        self.timestamp = timestamp
-
     def parse(self, fp: BinaryIO) -> None:
         # channel, length, flags, ecc, position, dlc, frame_length, id, flags_ext
         m = CAN_ERROR_EXT_STRUCT.unpack(fp.read(CAN_ERROR_EXT_STRUCT.size))
@@ -236,10 +240,6 @@ class CANErrorMessage(Message):
 
 class EthernetFrame(Message):
 
-    def __init__(self, timestamp: float) -> None:
-        super().__init__()
-        self.timestamp = timestamp
-
     def parse(self, fp: BinaryIO) -> None:
         # source_address, channel, destination_address, flags, ethernet_type, vlan_tpid,
         # vlan_tci, payload_length (max. 1500 bytes without Ethernet header)
@@ -255,6 +255,15 @@ class EthernetFrame(Message):
         self.data_length = m[7]
         self.data = fp.read(self.data_length)
         self.channel = m[1]
+
+    def __str__(self) -> str:
+        return '<ethernet-frame sa="{sa}" da="{da}" vlan_id="{vlan_id}" channel="{channel}" data="{data}" timestamp="{timestamp}" />'.format(
+            sa=":".join(map(str, self.source_address)),
+            da=":".join(map(str, self.destination_address)),
+            vlan_id=self.vlan_id,
+            channel=self.channel,
+            data=self.data.hex(" "),
+            timestamp=self.timestamp)
 
 
 class MessageFilter:
@@ -277,8 +286,7 @@ class MessageFilter:
 
 class BLFObject:
 
-    def __init__(self, start_timestamp: float = 0) -> None:
-        self.start_timestamp = start_timestamp
+    def __init__(self) -> None:
         self._content: List[Message] = []
 
     @property
@@ -326,7 +334,7 @@ class BLFObject:
                 raise BLFError("unknown compression method")
             while True:
                 try:
-                    obj = BLFObject(self.start_timestamp)
+                    obj = BLFObject()
                     obj.parse(fp_)
                 except EOFError:
                     break
@@ -344,29 +352,26 @@ class BLFObject:
             else:
                 raise BLFError("unknown header version", self.version)
             if flags == TIME_TEN_MICS:
-                factor = 10 * 1e-6
-            else:
-                factor = 1e-9
-            timestamp_ = timestamp * factor + self.start_timestamp
+                timestamp = timestamp * 10000
             msg: Message
             if self.obj_type in (CAN_MESSAGE, CAN_MESSAGE2):
-                msg = CANMessage(timestamp_)
+                msg = CANMessage(timestamp)
                 msg.parse(fp)
                 self._content.append(msg)
             elif self.obj_type == CAN_FD_MESSAGE:
-                msg = CANFDMessage(timestamp_)
+                msg = CANFDMessage(timestamp)
                 msg.parse(fp)
                 self._content.append(msg)
             elif self.obj_type == CAN_FD_MESSAGE_64:
-                msg = CANFDMessage64(timestamp_)
+                msg = CANFDMessage64(timestamp)
                 msg.parse(fp)
                 self._content.append(msg)
             elif self.obj_type == ETHERNET_FRAME:
-                msg = EthernetFrame(timestamp_)
+                msg = EthernetFrame(timestamp)
                 msg.parse(fp)
                 self._content.append(msg)
             elif self.obj_type == CAN_ERROR_EXT:
-                msg = CANErrorMessage(timestamp_)
+                msg = CANErrorMessage(timestamp)
                 msg.parse(fp)
                 self._content.append(msg)
             else:
@@ -375,7 +380,7 @@ class BLFObject:
                 except ValueError:
                     obj_type = str(self.obj_type)
                 obj_data = fp.read(self.data_size)[:16].hex(' ')
-                logging.debug(f'<unknown-object type="{obj_type}" data="{obj_data}" />')
+                logging.debug(f'<unknown-object type="{obj_type}" data="{obj_data}" timestamp="{timestamp}" />')
         fp.seek(self.obj_next)
 
 
@@ -409,6 +414,8 @@ class AbstractLogReader(ABC):
 class BLFReader(AbstractLogReader):
     header_size: int
     file_size: int
+    start_timestamp: datetime.datetime
+    stop_timestamp: datetime.datetime
     buffer: List[Message]
     content_offset: int
     current_offset: int
@@ -443,13 +450,13 @@ class BLFReader(AbstractLogReader):
         self.file_size = header[10]
         self.uncompressed_size = header[11]
         self.object_count = header[12]
-        self.start_timestamp = systemtime_to_timestamp(header[14:22])
-        self.stop_timestamp = systemtime_to_timestamp(header[22:30])
+        self.start_timestamp = systemtime_to_datetime(SystemTime._make(header[14:22]))
+        self.stop_timestamp = systemtime_to_datetime(SystemTime._make(header[22:30]))
         self.fp.read(self.header_size - FILE_HEADER_STRUCT.size)
         self.content_offset = self.fp.tell()
 
     def __read_object(self) -> BLFObject:
-        obj = BLFObject(self.start_timestamp)
+        obj = BLFObject()
         obj.parse(self.fp)
         self.current_offset = self.fp.tell()
         return obj
@@ -490,7 +497,7 @@ class BLFReader(AbstractLogReader):
             i = len(buffer)
             while i >= 0:
                 i = buffer.rfind(LOBJ, 0, i)
-                obj = BLFObject(self.start_timestamp)
+                obj = BLFObject()
                 obj.parseBytes(buffer[i:])
                 for msg in reversed(obj.content):
                     if self.msg_filter.match(msg):
@@ -512,8 +519,7 @@ class BLFReader(AbstractLogReader):
     def set_msg_filter(self, msg_filter: MessageFilter) -> None:
         self.msg_filter = msg_filter
 
-    def seek_seconds(self, seconds: float) -> None:
-        target = self.start_timestamp + seconds
+    def seek_microsecond(self, microsecond: int) -> None:
         self.fp.seek(0, SEEK_END)
         offset = self.fp.tell() // 2
         self.fp.seek(offset)
@@ -521,12 +527,12 @@ class BLFReader(AbstractLogReader):
             obj = self.__read_object()
             if offset < OBJ_HEADER_BASE_STRUCT.size:
                 return
-            elif target < obj.content[0].timestamp:
+            elif microsecond < obj.content[0].timestamp:
                 offset = offset // 2
                 self.fp.seek(-offset, SEEK_CUR)
-            elif obj.content[-1].timestamp < target:
+            elif obj.content[-1].timestamp < microsecond:
                 next_obj = self.__read_object()
-                if target < next_obj.content[0].timestamp:
+                if microsecond < next_obj.content[0].timestamp:
                     self.fp.seek(obj.obj_curr)
                     return
                 offset = offset // 2
@@ -554,7 +560,7 @@ class MySignal:
         self.value = msg.data[3]
 
     def __str__(self) -> str:
-        return "<signal id=0x{:x} offset={} value={} timestamp={} />".format(self.msg.id, self.offset, self.value, self.msg.timestamp)
+        return '<signal id="0x{:x}" offset="{}" value="{}" timestamp="{}" />'.format(self.msg.id, self.offset, self.value, self.msg.timestamp)
 
 
 def search_signals(blf: AbstractLogReader, resolution: int = 32) -> List[MySignal]:
