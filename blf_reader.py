@@ -534,7 +534,8 @@ class BLFReader(AbstractLogReader):
     def set_msg_filter(self, msg_filter: MessageFilter) -> None:
         self.msg_filter = msg_filter
 
-    def seek_microsecond(self, microsecond: int) -> None:
+    def seek_timestamp(self, timestamp: int) -> None:
+        timestamp_ = Nanosecond(timestamp)
         self.fp.seek(0, SEEK_END)
         offset = self.fp.tell() // 2
         self.fp.seek(offset)
@@ -542,12 +543,12 @@ class BLFReader(AbstractLogReader):
             obj = self.__read_object()
             if offset < OBJ_HEADER_BASE_STRUCT.size:
                 return
-            elif microsecond < obj.content[0].timestamp:
+            elif timestamp_ < obj.content[0].timestamp:
                 offset = offset // 2
                 self.fp.seek(-offset, SEEK_CUR)
-            elif obj.content[-1].timestamp < microsecond:
+            elif obj.content[-1].timestamp < timestamp_:
                 next_obj = self.__read_object()
-                if microsecond < next_obj.content[0].timestamp:
+                if timestamp_ < next_obj.content[0].timestamp:
                     self.fp.seek(obj.obj_curr)
                     return
                 offset = offset // 2
