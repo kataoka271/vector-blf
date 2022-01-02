@@ -111,7 +111,14 @@ class SystemTime(NamedTuple):
     millisecond: int
 
 
-def datetime_to_systemtime(t: datetime.datetime) -> SystemTime:
+class Nanosecond(int):
+
+    def __str__(self) -> str:
+        return str(self / 1e9)
+
+
+def nanosecond_to_systemtime(nanosecond: Nanosecond) -> SystemTime:
+    t = datetime.datetime.fromtimestamp(nanosecond * 1e-9)
     return SystemTime(t.year,
                       t.month,
                       t.isoweekday() % 7,
@@ -122,17 +129,19 @@ def datetime_to_systemtime(t: datetime.datetime) -> SystemTime:
                       t.microsecond // 1000)
 
 
-def systemtime_to_datetime(systemtime: SystemTime) -> datetime.datetime:
+def systemtime_to_nanosecond(systemtime: SystemTime) -> Nanosecond:
     try:
-        return datetime.datetime(systemtime.year,
-                                 systemtime.month,
-                                 systemtime.day,
-                                 systemtime.hour,
-                                 systemtime.minute,
-                                 systemtime.second,
-                                 systemtime.millisecond * 1000)
+        t = datetime.datetime(systemtime.year,
+                              systemtime.month,
+                              systemtime.day,
+                              systemtime.hour,
+                              systemtime.minute,
+                              systemtime.second,
+                              systemtime.millisecond * 1000)
     except ValueError:
-        return datetime.datetime.fromtimestamp(0)
+        return Nanosecond(0)
+    else:
+        return Nanosecond(int(round(t.timestamp() * 1e9)))
 
 
 class BLFError(Exception):
@@ -141,7 +150,7 @@ class BLFError(Exception):
 
 class Message:
 
-    def __init__(self, timestamp: int = 0, id: int = 0, channel: int = 0, dlc: int = 0, data: bytes = b"") -> None:
+    def __init__(self, timestamp: Nanosecond = Nanosecond(0), id: int = 0, channel: int = 0, dlc: int = 0, data: bytes = b"") -> None:
         self.timestamp = timestamp
         self.id = id
         self.channel = channel
@@ -352,26 +361,28 @@ class BLFObject:
             else:
                 raise BLFError("unknown header version", self.version)
             if flags == TIME_TEN_MICS:
-                timestamp = timestamp * 10000
+                timestamp_ = Nanosecond(timestamp * 10000)
+            else:
+                timestamp_ = Nanosecond(timestamp)
             msg: Message
             if self.obj_type in (CAN_MESSAGE, CAN_MESSAGE2):
-                msg = CANMessage(timestamp)
+                msg = CANMessage(timestamp_)
                 msg.parse(fp)
                 self._content.append(msg)
             elif self.obj_type == CAN_FD_MESSAGE:
-                msg = CANFDMessage(timestamp)
+                msg = CANFDMessage(timestamp_)
                 msg.parse(fp)
                 self._content.append(msg)
             elif self.obj_type == CAN_FD_MESSAGE_64:
-                msg = CANFDMessage64(timestamp)
+                msg = CANFDMessage64(timestamp_)
                 msg.parse(fp)
                 self._content.append(msg)
             elif self.obj_type == ETHERNET_FRAME:
-                msg = EthernetFrame(timestamp)
+                msg = EthernetFrame(timestamp_)
                 msg.parse(fp)
                 self._content.append(msg)
             elif self.obj_type == CAN_ERROR_EXT:
-                msg = CANErrorMessage(timestamp)
+                msg = CANErrorMessage(timestamp_)
                 msg.parse(fp)
                 self._content.append(msg)
             else:
@@ -380,7 +391,7 @@ class BLFObject:
                 except ValueError:
                     obj_type = str(self.obj_type)
                 obj_data = fp.read(self.data_size)[:16].hex(' ')
-                logging.debug(f'<unknown-object type="{obj_type}" data="{obj_data}" timestamp="{timestamp}" />')
+                logging.debug(f'<unknown-object type="{obj_type}" data="{obj_data}" timestamp="{timestamp_}" />')
         fp.seek(self.obj_next)
 
 
@@ -414,8 +425,8 @@ class AbstractLogReader(ABC):
 class BLFReader(AbstractLogReader):
     header_size: int
     file_size: int
-    start_timestamp: datetime.datetime
-    stop_timestamp: datetime.datetime
+    start_timestamp: Nanosecond
+    stop_timestamp: Nanosecond
     buffer: List[Message]
     content_offset: int
     current_offset: int
@@ -450,8 +461,8 @@ class BLFReader(AbstractLogReader):
         self.file_size = header[10]
         self.uncompressed_size = header[11]
         self.object_count = header[12]
-        self.start_timestamp = systemtime_to_datetime(SystemTime._make(header[14:22]))
-        self.stop_timestamp = systemtime_to_datetime(SystemTime._make(header[22:30]))
+        self.start_timestamp = systemtime_to_nanosecond(SystemTime._make(header[14:22]))
+        self.stop_timestamp = systemtime_to_nanosecond(SystemTime._make(header[22:30]))
         self.fp.read(self.header_size - FILE_HEADER_STRUCT.size)
         self.content_offset = self.fp.tell()
 
