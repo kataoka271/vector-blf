@@ -6,7 +6,7 @@ import logging
 import struct
 import zlib
 
-from blf_types import ObjectType
+from blf_objtype import ObjectType
 
 
 logging.basicConfig(level=logging.DEBUG, format='<%(levelname)s>%(message)s</%(levelname)s>')
