@@ -266,10 +266,14 @@ class EthernetFrame(Message):
         self.channel = m[1]
 
     def __str__(self) -> str:
-        return '<ethernet-frame sa="{sa}" da="{da}" vlan_id="{vlan_id}" channel="{channel}" data="{data}" timestamp="{timestamp}" />'.format(
+        return ('<ethernet-frame sa="{sa}" da="{da}" ethernet_type="0x{ethernet_type:04x}" '
+                'vlan_tpid="{vlan_tpid}" vlan_id="{vlan_id}" '
+                'channel="{channel}" data="{data}" timestamp="{timestamp}" />').format(
             sa=":".join(map(str, self.source_address)),
             da=":".join(map(str, self.destination_address)),
+            vlan_tpid=self.vlan_tpid,
             vlan_id=self.vlan_id,
+            ethernet_type=self.ethernet_type,
             channel=self.channel,
             data=self.data.hex(" "),
             timestamp=self.timestamp)
