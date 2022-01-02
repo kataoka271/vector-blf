@@ -604,16 +604,3 @@ def search_signals(blf: AbstractLogReader, resolution: int = 32) -> List[MySigna
                 last = sig
     results.insert(0, sig_first)
     return results
-
-
-if __name__ == "__main__":
-    fp = open(".\\sample\\logfile.blf", "rb")
-    blf = BLFReader(fp, MessageFilter())
-    blf.seek(0)
-    try:
-        print(blf.read_message())
-        print(blf.read_message())
-        print(blf.read_message())
-        print(blf.read_message())
-    except EOFError:
-        pass
