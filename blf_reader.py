@@ -562,47 +562,72 @@ class BLFReader(AbstractLogReader):
         return self.file_size - self.content_offset
 
 
-class MyFilter(MessageFilter):
+class Signal:
+    pos: float
+    msg: Message
+    value: int
 
-    def match(self, msg: Message) -> bool:
-        return msg.id == 0x695 and msg.channel == 1
-
-
-class MySignal:
-
-    def __init__(self, msg: Message, offset: float) -> None:
-        self.offset = offset
+    def __init__(self, pos: float, msg: Message, value: int) -> None:
+        self.pos = pos
         self.msg = msg
-        self.value = msg.data[3]
+        self.value = value
 
     def __str__(self) -> str:
-        return '<signal id="0x{:x}" offset="{}" value="{}" timestamp="{}" />'.format(self.msg.id, self.offset, self.value, self.msg.timestamp)
+        return '<signal pos="{pos}" value="{value}" id="0x{id:x}" timestamp="{timestamp}" />'.format(
+            pos=self.pos,
+            value=self.value,
+            id=self.msg.id,
+            timestamp=self.msg.timestamp)
 
 
-def search_signals(blf: AbstractLogReader, resolution: int = 32) -> List[MySignal]:
+class SignalFactory:
+    byte_offset: int
+    bit_offset: int
+    bit_length: int
+
+    def __init__(self, byte_offset: int, bit_offset: int, bit_length: int) -> None:
+        if bit_length > 64:
+            raise ValueError("bit length is too large")
+        self.byte_offset = byte_offset
+        self.bit_offset = bit_offset
+        self.bit_length = bit_length
+
+    def get_signal_value(self, data: bytes) -> int:
+        value = 0
+        for byte in data[self.byte_offset:self.byte_offset + self.bit_length // 8 + 1]:
+            value = (value << 8) | byte
+        mask = (1 << self.bit_length) - 1
+        shift = (8 - (7 - self.bit_offset + self.bit_length) % 8) % 8
+        return (value >> shift) & mask
+
+    def __call__(self, pos: float, msg: Message) -> Signal:
+        return Signal(pos, msg, self.get_signal_value(msg.data))
+
+
+def search_signals(blf: AbstractLogReader, signal: SignalFactory, resolution: int = 32) -> List[Signal]:
     msg = blf.read_message()
-    sig_first = MySignal(msg, blf.tell())
+    sig_first = signal(blf.tell(), msg)
     msg = blf.last_message()
-    sig_last = MySignal(msg, blf.tell())
+    sig_last = signal(blf.tell(), msg)
     stack = [sig_first, sig_last]
     results = []
     while len(stack) >= 2:
         last = stack.pop()
         first = stack.pop()
-        dt = (last.offset - first.offset) / resolution
-        if abs(dt) < 1 / blf.length or last.offset - first.offset < 0.01:  # 1M bytes
-            blf.seek(first.offset)
-            while first.offset < last.offset:
+        dt = (last.pos - first.pos) / resolution
+        if abs(dt) < 1 / blf.length or last.pos - first.pos < 0.01:  # 1M bytes
+            blf.seek(first.pos)
+            while first.pos < last.pos:
                 msg = blf.read_message()
-                sig = MySignal(msg, blf.tell())
+                sig = signal(blf.tell(), msg)
                 if first.value != sig.value:
                     results.append(sig)
                 first = sig
         else:
-            while first.offset < last.offset:
-                blf.seek(last.offset - dt)
+            while first.pos < last.pos:
+                blf.seek(last.pos - dt)
                 msg = blf.read_message()
-                sig = MySignal(msg, blf.tell())
+                sig = signal(blf.tell(), msg)
                 if sig.value != last.value:
                     stack.append(sig)
                     stack.append(last)

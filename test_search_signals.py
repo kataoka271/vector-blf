@@ -1,4 +1,4 @@
-from blf_reader import Message, AbstractLogReader, Nanosecond, search_signals
+from blf_reader import Message, AbstractLogReader, Nanosecond, SignalFactory, search_signals
 
 
 class DummyReader(AbstractLogReader):
@@ -13,7 +13,7 @@ class DummyReader(AbstractLogReader):
                         [Message(Nanosecond(i * 1e9), 0x695, 1, data=b"000\x14") for i in range(167, 10167)] + \
                         [Message(Nanosecond(i * 1e9), 0x695, 1, data=b"000\x12") for i in range(10167, 10194)] + \
                         [Message(Nanosecond(i * 1e9), 0x695, 1, data=b"000\x07") for i in range(10194, 10199)] + \
-                        [Message(Nanosecond(i * 1e9), 0x695, 1, data=b"000\x00") for i in range(10199, 10222)]
+                        [Message(Nanosecond(i * 1e9), 0x695, 1, data=b"000\x80") for i in range(10199, 10222)]
         self.i = 0
 
     def read_message(self) -> Message:
@@ -39,5 +39,5 @@ class DummyReader(AbstractLogReader):
 
 
 if __name__ == "__main__":
-    for sig in search_signals(DummyReader()):
+    for sig in search_signals(DummyReader(), SignalFactory(3, 6, 7)):
         print(sig)
