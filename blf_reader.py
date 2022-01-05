@@ -1,4 +1,4 @@
-from abc import ABC, abstractmethod, abstractproperty
+from abc import ABC, abstractmethod
 from io import SEEK_CUR, SEEK_END, BytesIO
 from typing import BinaryIO, Callable, Generator, List, Optional, NamedTuple
 import datetime
@@ -150,9 +150,9 @@ class BLFError(Exception):
 
 class Message:
 
-    def __init__(self, timestamp: Nanosecond = Nanosecond(0), id: int = 0, channel: int = 0, dlc: int = 0, data: bytes = b"") -> None:
+    def __init__(self, timestamp: Nanosecond = Nanosecond(0), id_: int = 0, channel: int = 0, dlc: int = 0, data: bytes = b"") -> None:
         self.timestamp = timestamp
-        self.id = id
+        self.id = id_
         self.channel = channel
         self.dlc = dlc
         self.data = data
@@ -281,8 +281,8 @@ class EthernetFrame(Message):
 
 class MessageFilter:
 
-    def __init__(self, id: Optional[int] = None, channel: Optional[int] = None, func: Optional[Callable[[Message], bool]] = None) -> None:
-        self.id = id
+    def __init__(self, id_: Optional[int] = None, channel: Optional[int] = None, func: Optional[Callable[[Message], bool]] = None) -> None:
+        self.id = id_
         self.channel = channel
         self.func = func
 
@@ -310,7 +310,7 @@ class BLFObject:
         self.__read_header(fp)
         self.__read_content(fp)
 
-    def parseBytes(self, data: bytes) -> None:
+    def parse_bytes(self, data: bytes) -> None:
         fp = BytesIO(data)
         self.__read_header(fp)
         self.__read_content(fp)
@@ -421,7 +421,8 @@ class AbstractLogReader(ABC):
     def tell(self) -> float:
         raise NotImplementedError()
 
-    @abstractproperty
+    @property
+    @abstractmethod
     def length(self) -> int:
         raise NotImplementedError()
 
@@ -513,7 +514,7 @@ class BLFReader(AbstractLogReader):
             while i >= 0:
                 i = buffer.rfind(LOBJ, 0, i)
                 obj = BLFObject()
-                obj.parseBytes(buffer[i:])
+                obj.parse_bytes(buffer[i:])
                 for msg in reversed(obj.content):
                     if self.msg_filter.match(msg):
                         self.fp.seek(i - len(buffer), SEEK_CUR)
