@@ -8,7 +8,6 @@ import zlib
 
 from blf_objtype import ObjectType
 
-
 logging.basicConfig(level=logging.DEBUG, format='<%(levelname)s>%(message)s</%(levelname)s>')
 
 # 0 = unknown, 2 = CANoe
@@ -64,7 +63,6 @@ CAN_ERROR_EXT_STRUCT = struct.Struct("<HHLBBBxLLH2x")
 # commented_event_type, foreground_color, background_color, relocatable,
 # group_name_length, marker_name_length, description_length
 GLOBAL_MARKER_STRUCT = struct.Struct("<LLL3xBLLL12x")
-
 
 CAN_MESSAGE = 1
 CAN_ERROR = 2
@@ -157,7 +155,7 @@ class Message:
         self.dlc = dlc
         self.data = data
         self.data_length = len(data)
-        self.is_extended_id = 0
+        self.is_extended_id = id_ & CAN_MSG_EXT != 0
         self.is_error_frame = False
         self.dir = 0
         self.rtr = 0
