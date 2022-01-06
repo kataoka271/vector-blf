@@ -297,10 +297,10 @@ class EthernetFrame(Message):
 
 class MessageFilter:
 
-    def __init__(self, id_: Optional[int] = None, channel: Optional[int] = None, func: Optional[Callable[[Message], bool]] = None) -> None:
+    def __init__(self, id_: Optional[int] = None, channel: Optional[int] = None, pred: Optional[Callable[[Message], bool]] = None) -> None:
         self.id = id_
         self.channel = channel
-        self.func = func
+        self.pred = pred
 
     def match(self, msg: Message) -> bool:
         ret = True
@@ -308,8 +308,8 @@ class MessageFilter:
             ret = ret and self.id == msg.id
         if self.channel is not None:
             ret = ret and self.channel == msg.channel
-        if self.func is not None:
-            ret = ret and self.func(msg)
+        if self.pred is not None:
+            ret = ret and self.pred(msg)
         return ret
 
 
