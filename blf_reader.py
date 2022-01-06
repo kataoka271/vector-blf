@@ -430,11 +430,11 @@ class AbstractLogReader(ABC):
         raise NotImplementedError()
 
     @abstractmethod
-    def seek(self, offset: float) -> None:
+    def seek(self, offset: int) -> None:
         raise NotImplementedError()
 
     @abstractmethod
-    def tell(self) -> float:
+    def tell(self) -> int:
         raise NotImplementedError()
 
     @property
@@ -537,16 +537,16 @@ class BLFReader(AbstractLogReader):
                         return msg
         raise BLFError("no message in this file")
 
-    def seek(self, offset: float) -> None:
+    def seek(self, offset: int) -> None:
         if offset < 0:
             offset = 0
-        if offset > 1:
-            offset = 1
-        self.fp.seek(int(offset * (self.file_size - self.content_offset)) + self.content_offset)
+        if offset > self.file_size:
+            offset = self.file_size
+        self.fp.seek(offset + self.content_offset)
         self.__find_nearest_object()
 
-    def tell(self) -> float:
-        return (self.fp.tell() - self.content_offset) / (self.file_size - self.content_offset)
+    def tell(self) -> int:
+        return self.fp.tell() - self.content_offset
 
     def set_msg_filter(self, msg_filter: MessageFilter) -> None:
         self.msg_filter = msg_filter
@@ -580,11 +580,11 @@ class BLFReader(AbstractLogReader):
 
 
 class Signal:
-    pos: float
+    pos: int
     msg: Message
     value: int
 
-    def __init__(self, pos: float, msg: Message, value: int) -> None:
+    def __init__(self, pos: int, msg: Message, value: int) -> None:
         self.pos = pos
         self.msg = msg
         self.value = value
@@ -617,7 +617,7 @@ class SignalFactory:
         shift = (8 - (7 - self.bit_offset + self.bit_length) % 8) % 8
         return (value >> shift) & mask
 
-    def __call__(self, pos: float, msg: Message) -> Signal:
+    def __call__(self, pos: int, msg: Message) -> Signal:
         return Signal(pos, msg, self.get_signal_value(msg.data))
 
 
@@ -631,8 +631,8 @@ def search_signals(blf: AbstractLogReader, signal: SignalFactory, resolution: in
     while len(stack) >= 2:
         last = stack.pop()
         first = stack.pop()
-        dt = (last.pos - first.pos) / resolution
-        if abs(dt) < 1 / blf.length or last.pos - first.pos < 0.01:  # 1M bytes
+        dt = (last.pos - first.pos) // resolution
+        if -300 < dt < 300:
             blf.seek(first.pos)
             while first.pos < last.pos:
                 msg = blf.read_message()

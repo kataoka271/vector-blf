@@ -27,11 +27,11 @@ class DummyReader(AbstractLogReader):
         self.i = len(self.messages) - 1
         return self.messages[-1]
 
-    def seek(self, offset: float) -> None:
-        self.i = int((len(self.messages) - 1) * max(0, min(1, offset)))
+    def seek(self, offset: int) -> None:
+        self.i = int(max(0, min(len(self.messages) - 1, offset)))
 
-    def tell(self) -> float:
-        return self.i / (len(self.messages) - 1)
+    def tell(self) -> int:
+        return self.i
 
     @property
     def length(self) -> int:
@@ -39,5 +39,5 @@ class DummyReader(AbstractLogReader):
 
 
 if __name__ == "__main__":
-    for sig in search_signals(DummyReader(), SignalFactory(3, 6, 7)):
+    for sig in search_signals(DummyReader(), SignalFactory(3, 7, 8)):
         print(sig)
