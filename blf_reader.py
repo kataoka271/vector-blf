@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from io import SEEK_CUR, SEEK_END, BytesIO
-from typing import BinaryIO, Callable, Generator, List, Optional, NamedTuple
+from typing import BinaryIO, Callable, Generator, List, Optional, NamedTuple, Any
 import datetime
 import logging
 import struct
@@ -157,6 +157,13 @@ class Message:
         self.dlc = dlc
         self.data = data
         self.data_length = len(data)
+        self.is_extended_id = 0
+        self.is_error_frame = False
+        self.dir = 0
+        self.rtr = 0
+        self.fdf = 0
+        self.brs = 0
+        self.esi = 0
 
     def parse(self, fp: BinaryIO) -> None:
         raise NotImplementedError()
@@ -249,12 +256,22 @@ class CANErrorMessage(Message):
 
 class EthernetFrame(Message):
 
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.source_address = (0, 0, 0, 0, 0, 0)
+        self.destination_address = (0, 0, 0, 0, 0, 0)
+        self.ethernet_type = 0
+        self.vlan_tpid = 0
+        self.vlan_prio = 0
+        self.vlan_cfi = 0
+        self.vlan_id = 0
+
     def parse(self, fp: BinaryIO) -> None:
         # source_address, channel, destination_address, flags, ethernet_type, vlan_tpid,
         # vlan_tci, payload_length (max. 1500 bytes without Ethernet header)
         m = ETHERNET_FRM_STRUCT.unpack(fp.read(ETHERNET_FRM_STRUCT.size))
-        self.source_address = struct.unpack("<BBBBBB", m[0])
-        self.destination_address = struct.unpack("<BBBBBB", m[2])
+        self.source_address = struct.unpack("<BBBBBB", m[0])  # type: ignore
+        self.destination_address = struct.unpack("<BBBBBB", m[2])  # type: ignore
         self.dir = m[3] & DIR
         self.ethernet_type = m[4]
         self.vlan_tpid = m[5]
@@ -266,9 +283,8 @@ class EthernetFrame(Message):
         self.channel = m[1]
 
     def __str__(self) -> str:
-        return ('<ethernet-frame sa="{sa}" da="{da}" ethernet_type="0x{ethernet_type:04x}" '
-                'vlan_tpid="{vlan_tpid}" vlan_id="{vlan_id}" '
-                'channel="{channel}" data="{data}" timestamp="{timestamp}" />').format(
+        return ('<ethernet-frame sa="{sa}" da="{da}" ethernet_type="0x{ethernet_type:04x}" vlan_tpid="{vlan_tpid}" vlan_id="{vlan_id}" channel="{channel}" '
+                'data="{data}" timestamp="{timestamp}" />').format(
             sa=":".join(map(str, self.source_address)),
             da=":".join(map(str, self.destination_address)),
             vlan_tpid=self.vlan_tpid,
