@@ -1,4 +1,4 @@
-from blf_reader import Message, AbstractLogReader, Nanosecond, SignalFactory, search_signals
+from blf_reader import Message, AbstractLogReader, Nanosecond, Signal, search_signals
 
 
 class DummyReader(AbstractLogReader):
@@ -38,6 +38,11 @@ class DummyReader(AbstractLogReader):
         return len(self.messages)
 
 
-if __name__ == "__main__":
-    for sig in search_signals(DummyReader(), SignalFactory(3, 7, 8)):
+def main() -> None:
+    signal = Signal(0x695, byte_offset=3, bit_offset=7, bit_length=8)
+    for sig in search_signals(DummyReader(), signal):
         print(sig)
+
+
+if __name__ == "__main__":
+    main()

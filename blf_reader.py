@@ -577,7 +577,7 @@ class BLFReader(AbstractLogReader):
         return self.file_size - self.content_offset
 
 
-class Signal:
+class SignalValue:
     pos: int
     msg: Message
     value: int
@@ -595,19 +595,23 @@ class Signal:
             timestamp=self.msg.timestamp)
 
 
-class SignalFactory:
-    byte_offset: int
-    bit_offset: int
-    bit_length: int
+class SignalPduIdUnmatch(Exception):
+    pass
 
-    def __init__(self, byte_offset: int, bit_offset: int, bit_length: int) -> None:
+
+class Signal:
+
+    def __init__(self, pdu_id: int, byte_offset: int, bit_offset: int, bit_length: int) -> None:
         if bit_length > 64:
             raise ValueError("bit length is too large")
+        self.pdu_id = pdu_id
         self.byte_offset = byte_offset
         self.bit_offset = bit_offset
         self.bit_length = bit_length
 
-    def get_signal_value(self, data: bytes) -> int:
+    def get_signal_value(self, pdu_id: int, data: bytes) -> int:
+        if pdu_id != self.pdu_id:
+            raise SignalPduIdUnmatch()
         value = 0
         for byte in data[self.byte_offset:self.byte_offset + self.bit_length // 8 + 1]:
             value = (value << 8) | byte
@@ -615,11 +619,11 @@ class SignalFactory:
         shift = (8 - (7 - self.bit_offset + self.bit_length) % 8) % 8
         return (value >> shift) & mask
 
-    def __call__(self, pos: int, msg: Message) -> Signal:
-        return Signal(pos, msg, self.get_signal_value(msg.data))
+    def __call__(self, pos: int, msg: Message) -> SignalValue:
+        return SignalValue(pos, msg, self.get_signal_value(msg.id, msg.data))
 
 
-def search_signals(blf: AbstractLogReader, signal: SignalFactory, resolution: int = 32) -> List[Signal]:
+def search_signals(blf: AbstractLogReader, signal: Signal, resolution: int = 32) -> List[SignalValue]:
     msg = blf.read_message()
     sig_first = signal(blf.tell(), msg)
     msg = blf.last_message()
